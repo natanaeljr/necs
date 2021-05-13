@@ -10,6 +10,7 @@ fn registry() {
     let entity = registry.create();
     registry.add(entity, Position{});
     registry.add(entity, Velocity{});
+    println!("{:#?}", registry);
     registry.replace::<Position>(entity, Position{});
     registry.remove::<Velocity>(entity);
     registry.destroy(entity);

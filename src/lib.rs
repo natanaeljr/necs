@@ -1,5 +1,8 @@
-use std::collections::HashSet;
-use std::any::TypeId;
+#![allow(dead_code)]
+
+use std::any::{Any, TypeId};
+use std::collections::{HashSet, HashMap};
+use std::collections::hash_map::Entry;
 
 #[cfg(test)]
 mod tests;
@@ -11,17 +14,21 @@ type Entity = u64;
 const NULL_ENTITY: Entity = 0;
 
 ///////////////////////////////////////////////////////////////////////////////
-// Component has to be ?Sized and 'static
 
+type ComponentId = TypeId;
+
+///////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
 struct Registry {
     next: Entity,
-    entities: HashMap<Entity, HashSet<TypeId>>,
-    // components: HashMap<TypeId, HashMap<Entity, 
+    entities: HashMap<Entity, HashSet<ComponentId>>,
+    components: HashMap<ComponentId, Box<dyn Any>>,
 }
 
 impl Registry {
     pub fn new() -> Self {
-        Self{ next: 1, entities: Vec::new() }
+        Self { next: 1, entities: HashMap::new(), components: HashMap::new() }
     }
 
     pub fn create(&mut self) -> Entity {
@@ -35,19 +42,34 @@ impl Registry {
         self.entities.remove(&entity);
     }
 
-    pub fn add<Component>(&mut self, entity: Entity, component: Component) -> bool {
-        if let Some(value) = self.entities.get(&entity) {
-            value.insert(TypeId::of::<Component>());
+    pub fn add<Component: Sized + 'static>(&mut self, entity: Entity, component: Component) {
+        if let Some(components) = self.entities.get_mut(&entity) {
+            if components.insert(TypeId::of::<Component>()) {
+                match self.components.entry(TypeId::of::<Component>()) {
+                    Entry::Occupied(mut entry) => {
+                        let map = entry.get_mut().downcast_mut::<HashMap<Entity, Component>>().unwrap();
+                        map.insert(entity, component);
+                    }
+                    Entry::Vacant(entry) => {
+                        let mut map: HashMap<Entity, Component> = HashMap::new();
+                        map.insert(entity, component);
+                        entry.insert(Box::new(map));
+                    }
+                }
+            }
         }
-        false
     }
 
-    pub fn remove<Component>(&mut self, entity: Entity) {
-        
+    pub fn remove<Component: Sized + 'static>(&mut self, entity: Entity) -> bool {
+        self.entities.get_mut(&entity).and_then(|components| {
+            components.remove(&TypeId::of::<Component>()).then(|| ())
+        }).is_some()
     }
 
-    pub fn replace<Component>(&mut self, entity: Entity, component: Component) {
-        
+    pub fn replace<Component: Sized + 'static>(&mut self, entity: Entity, _component: Component) -> bool {
+        self.entities.get_mut(&entity).and_then(|components| {
+            components.contains(&TypeId::of::<Component>()).then(|| ())
+        }).is_some()
     }
 }
 
@@ -65,12 +87,9 @@ impl<'reg> Handle<'reg> {
 
     fn id(&self) -> Entity { self.entity }
 
-    fn add<Component>(&mut self, component: Component) {
-    }
+    fn add<Component>(&mut self, _component: Component) {}
 
-    fn remove<Component>(&mut self) {
-    }
+    fn remove<Component>(&mut self) {}
 
-    fn replace<Component>(&mut self, component: Component) {
-    }
+    fn replace<Component>(&mut self, _component: Component) {}
 }
