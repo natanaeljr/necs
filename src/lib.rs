@@ -78,17 +78,17 @@ impl Registry {
         self.entities.remove(&entity);
     }
 
-    pub fn add<Component: Sized + 'static>(&mut self, entity: Entity, component: Component) {
+    pub fn add<Component: Sized + 'static>(&mut self, entity: Entity, new_component: Component) {
         if let Some(component_ids) = self.entities.get_mut(&entity) {
             if component_ids.insert(TypeId::of::<Component>()) {
                 match self.component_pool.entry(TypeId::of::<Component>()) {
                     Entry::Occupied(mut entry) => {
                         let map = entry.get_mut().as_any_mut().downcast_mut::<HashMap<Entity, Component>>().unwrap();
-                        map.insert(entity, component);
+                        map.insert(entity, new_component);
                     }
                     Entry::Vacant(entry) => {
                         let mut map: HashMap<Entity, Component> = HashMap::new();
-                        map.insert(entity, component);
+                        map.insert(entity, new_component);
                         entry.insert(Box::new(map));
                     }
                 }
@@ -96,16 +96,41 @@ impl Registry {
         }
     }
 
-    pub fn remove<Component: Sized + 'static>(&mut self, entity: Entity) -> bool {
-        self.entities.get_mut(&entity).and_then(|components| {
-            components.remove(&TypeId::of::<Component>()).then(|| ())
-        }).is_some()
+    pub fn remove<Component: Sized + 'static>(&mut self, entity: Entity) {
+        if let Some(component_ids) = self.entities.get_mut(&entity) {
+            if component_ids.remove(&TypeId::of::<Component>()) {
+                let component_storage = self.component_pool.get_mut(&TypeId::of::<Component>()).unwrap().as_mut();
+                component_storage.remove(&entity);
+                if component_storage.is_empty() {
+                    self.component_pool.remove(&TypeId::of::<Component>());
+                }
+            }
+        }
     }
 
-    pub fn replace<Component: Sized + 'static>(&mut self, entity: Entity, _component: Component) -> bool {
-        self.entities.get_mut(&entity).and_then(|components| {
-            components.contains(&TypeId::of::<Component>()).then(|| ())
-        }).is_some()
+    pub fn replace<Component: Sized + 'static>(&mut self, entity: Entity, new_component: Component) {
+        match self.component_pool.entry(TypeId::of::<Component>()) {
+            Entry::Occupied(mut entry) => {
+                let component_storage = entry.get_mut().as_any_mut().downcast_mut::<HashMap<Entity, Component>>().unwrap();
+                if let Some(old_component) = component_storage.get_mut(&entity) {
+                    *old_component = new_component;
+                }
+            }
+            Entry::Vacant(_) => {}
+        }
+    }
+
+    pub fn get<Component: Sized + 'static>(&self, entity: Entity) -> Option<&Component> {
+        if let Some(component_pool) = self.component_pool.get(&TypeId::of::<Component>()) {
+            let component_pool = component_pool.as_ref();
+            let component_storage = component_pool.as_any().downcast_ref::<HashMap<Entity, Component>>().unwrap();
+            return component_storage.get(&entity)
+        }
+        None
+    }
+
+    pub fn exists(&self, entity: Entity) -> bool {
+        self.entities.contains_key(&entity)
     }
 }
 
@@ -121,11 +146,26 @@ impl<'reg> Handle<'reg> {
         Self { registry, entity }
     }
 
+    #[inline]
     fn id(&self) -> Entity { self.entity }
 
-    fn add<Component>(&mut self, _component: Component) {}
+    #[inline]
+    fn add<Component: Sized + 'static>(&mut self, new_component: Component) {
+        self.registry.add(self.entity, new_component)
+    }
 
-    fn remove<Component>(&mut self) {}
+    #[inline]
+    fn remove<Component: Sized + 'static>(&mut self) {
+        self.registry.remove::<Component>(self.entity)
+    }
 
-    fn replace<Component>(&mut self, _component: Component) {}
+    #[inline]
+    fn replace<Component: Sized + 'static>(&mut self, new_component: Component) {
+        self.registry.replace(self.entity, new_component)
+    }
+
+    #[inline]
+    fn get<Component: Sized + 'static>(&mut self) -> Option<&Component>{
+        self.registry.get::<Component>(self.entity)
+    }
 }
