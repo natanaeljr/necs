@@ -51,3 +51,30 @@ fn typeinfo() {
     assert_eq!("necs::tests::Position", std::any::type_name::<Position>());
     assert_eq!("necs::tests::Velocity", std::any::type_name::<Velocity>());
 }
+
+#[test]
+fn gets() {
+    let mut registry = Registry::new();
+    let entity = registry.create();
+    registry.add(entity, Position {});
+    registry.add(entity, Velocity {});
+    registry.add(entity, Color {});
+    registry.replace(entity, Position {});
+    registry.remove::<Color>(entity);
+
+    let (position, velocity, color) = registry.get_all::<(Position, Velocity, Color)>(entity);
+    assert!(position.is_some());
+    assert!(velocity.is_some());
+    assert!(color.is_none());
+
+    let (position, velocity) = registry.get_all::<(Position, Velocity)>(entity);
+    assert!(position.is_some());
+    assert!(velocity.is_some());
+
+    let (position, velocity) = <(Position, Velocity)>::get_components(entity, &registry);
+    assert!(position.is_some());
+    assert!(velocity.is_some());
+
+    let (color, ) = <(Color, )>::get_components(entity, &registry);
+    assert!(color.is_none());
+}

@@ -17,6 +17,10 @@ const NULL_ENTITY: Entity = 0;
 
 type ComponentId = TypeId;
 
+pub trait ComponentTrait: 'static + Sized {}
+
+impl<T: 'static + Sized> ComponentTrait for T {}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 trait ComponentStorage {
@@ -27,7 +31,7 @@ trait ComponentStorage {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-impl<T: 'static> ComponentStorage for HashMap<Entity, T> {
+impl<T: ComponentTrait> ComponentStorage for HashMap<Entity, T> {
     fn remove(&mut self, entity: &Entity) {
         self.remove(entity);
     }
@@ -47,7 +51,7 @@ impl<T: 'static> ComponentStorage for HashMap<Entity, T> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-struct Registry {
+pub struct Registry {
     next: Entity,
     entities: HashMap<Entity, HashSet<ComponentId>>,
     component_pool: HashMap<ComponentId, Box<dyn ComponentStorage>>,
@@ -78,7 +82,7 @@ impl Registry {
         self.entities.remove(&entity);
     }
 
-    pub fn add<Component: Sized + 'static>(&mut self, entity: Entity, new_component: Component) {
+    pub fn add<Component: ComponentTrait>(&mut self, entity: Entity, new_component: Component) {
         if let Some(component_ids) = self.entities.get_mut(&entity) {
             if component_ids.insert(TypeId::of::<Component>()) {
                 match self.component_pool.entry(TypeId::of::<Component>()) {
@@ -129,8 +133,52 @@ impl Registry {
         None
     }
 
+    pub fn get_all<'r, Components: ComponentSet<'r>>(&'r self, entity: Entity) -> Components::Result {
+        Components::get_components(entity, self)
+    }
+
     pub fn exists(&self, entity: Entity) -> bool {
         self.entities.contains_key(&entity)
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+pub trait ComponentSet<'r> {
+    type Result: Default;
+    fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result;
+}
+
+impl<'r, A> ComponentSet<'r> for (A, ) where A: ComponentTrait {
+    type Result = (Option<&'r A>, );
+
+    fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
+        (
+            registry.get::<A>(entity),
+        )
+    }
+}
+
+impl<'r, A, B> ComponentSet<'r> for (A, B) where A: ComponentTrait, B: ComponentTrait {
+    type Result = (Option<&'r A>, Option<&'r B>);
+
+    fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
+        (
+            registry.get::<A>(entity),
+            registry.get::<B>(entity),
+        )
+    }
+}
+
+impl<'r, A, B, C> ComponentSet<'r> for (A, B, C) where A: ComponentTrait, B: ComponentTrait, C: ComponentTrait {
+    type Result = (Option<&'r A>, Option<&'r B>, Option<&'r C>);
+
+    fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
+        (
+            registry.get::<A>(entity),
+            registry.get::<B>(entity),
+            registry.get::<C>(entity),
+        )
     }
 }
 
@@ -165,7 +213,7 @@ impl<'reg> Handle<'reg> {
     }
 
     #[inline]
-    fn get<Component: Sized + 'static>(&mut self) -> Option<&Component>{
+    fn get<Component: Sized + 'static>(&mut self) -> Option<&Component> {
         self.registry.get::<Component>(self.entity)
     }
 }
