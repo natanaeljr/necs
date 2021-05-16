@@ -1,20 +1,33 @@
 use super::*;
 
-struct Position;
+#[derive(Debug, Default, PartialEq)]
+struct Position {
+    x: i32,
+    y: i32,
+}
 
-struct Velocity;
+#[derive(Debug, Default, PartialEq)]
+struct Velocity {
+    dx: i32,
+    dy: i32,
+}
 
-struct Color;
+#[derive(Debug, Default, PartialEq)]
+struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+}
 
 #[test]
 fn registry() {
     let mut registry = Registry::new();
     let entity = registry.create();
 
-    registry.add(entity, Position {});
-    registry.add(entity, Velocity {});
-    registry.add(entity, Color {});
-    registry.replace(entity, Position {});
+    registry.add(entity, Position { x: 10, y: 20 });
+    registry.add(entity, Velocity { dx: -50, dy: -100 });
+    registry.add(entity, Color::default());
+    registry.replace(entity, Position { x: 40, y: 80 });
     registry.remove::<Color>(entity);
 
     assert!(!registry.exists(10));
@@ -23,9 +36,13 @@ fn registry() {
     assert!(registry.get::<Color>(10).is_none());
 
     assert!(registry.exists(entity));
-    assert!(registry.get::<Position>(entity).is_some());
-    assert!(registry.get::<Velocity>(entity).is_some());
-    assert!(registry.get::<Color>(entity).is_none());
+    assert_eq!(registry.get::<Position>(entity), Some(&Position { x: 40, y: 80 }));
+    assert_eq!(registry.get::<Velocity>(entity), Some(&Velocity { dx: -50, dy: -100 }));
+    assert_eq!(registry.get::<Color>(entity), None);
+
+    registry.patch::<Velocity>(entity).with(|vel| vel.dy -= 20);
+    assert_ne!(registry.get::<Velocity>(entity), Some(&Velocity { dx: -50, dy: -100 }));
+    assert_eq!(registry.get::<Velocity>(entity), Some(&Velocity { dx: -50, dy: -120 }));
 
     registry.destroy(entity);
     assert!(!registry.exists(entity));
@@ -40,10 +57,11 @@ fn handle() {
     let id = registry.create();
     let mut entity = Handle::new(&mut registry, id);
     assert_eq!(id, entity.id());
-    entity.add(Position {});
-    entity.add(Velocity {});
-    entity.replace(Velocity {});
+    entity.add(Position::default());
+    entity.add(Velocity::default());
+    entity.replace(Velocity::default());
     entity.remove::<Position>();
+    entity.patch::<Velocity>().with(|vel| vel.dy -= 20);
 }
 
 #[test]
@@ -53,28 +71,28 @@ fn typeinfo() {
 }
 
 #[test]
-fn gets() {
+fn get_tuple() {
     let mut registry = Registry::new();
     let entity = registry.create();
-    registry.add(entity, Position {});
-    registry.add(entity, Velocity {});
-    registry.add(entity, Color {});
-    registry.replace(entity, Position {});
+    registry.add(entity, Position::default());
+    registry.add(entity, Velocity::default());
+    registry.add(entity, Color::default());
+    registry.replace(entity, Position::default());
     registry.remove::<Color>(entity);
 
-    let (position, velocity, color) = registry.get_all::<(Position, Velocity, Color)>(entity);
+    let (position, velocity, color) = registry.get_all::<(&Position, &Velocity, &Color)>(entity);
     assert!(position.is_some());
     assert!(velocity.is_some());
     assert!(color.is_none());
 
-    let (position, velocity) = registry.get_all::<(Position, Velocity)>(entity);
+    let (position, velocity) = registry.get_all::<(&Position, &Velocity)>(entity);
     assert!(position.is_some());
     assert!(velocity.is_some());
 
-    let (position, velocity) = <(Position, Velocity)>::get_components(entity, &registry);
+    let (position, velocity) = <(&Position, &Velocity)>::get_components(entity, &registry);
     assert!(position.is_some());
     assert!(velocity.is_some());
 
-    let (color, ) = <(Color, )>::get_components(entity, &registry);
+    let (color, ) = <(&Color, )>::get_components(entity, &registry);
     assert!(color.is_none());
 }

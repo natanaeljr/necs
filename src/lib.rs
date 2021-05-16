@@ -51,15 +51,21 @@ impl<T: ComponentTrait> ComponentStorage for HashMap<Entity, T> {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Default)]
+struct Observer;
+
+///////////////////////////////////////////////////////////////////////////////
+
 pub struct Registry {
     next: Entity,
     entities: HashMap<Entity, HashSet<ComponentId>>,
     component_pool: HashMap<ComponentId, Box<dyn ComponentStorage>>,
+    observer: Observer,
 }
 
 impl Registry {
     pub fn new() -> Self {
-        Self { next: 1, entities: HashMap::new(), component_pool: HashMap::new() }
+        Self { next: 1, entities: HashMap::new(), component_pool: HashMap::new(), observer: Default::default() }
     }
 
     pub fn create(&mut self) -> Entity {
@@ -100,7 +106,7 @@ impl Registry {
         }
     }
 
-    pub fn remove<Component: Sized + 'static>(&mut self, entity: Entity) {
+    pub fn remove<Component: ComponentTrait>(&mut self, entity: Entity) {
         if let Some(component_ids) = self.entities.get_mut(&entity) {
             if component_ids.remove(&TypeId::of::<Component>()) {
                 let component_storage = self.component_pool.get_mut(&TypeId::of::<Component>()).unwrap().as_mut();
@@ -112,19 +118,19 @@ impl Registry {
         }
     }
 
-    pub fn replace<Component: Sized + 'static>(&mut self, entity: Entity, new_component: Component) {
-        match self.component_pool.entry(TypeId::of::<Component>()) {
-            Entry::Occupied(mut entry) => {
-                let component_storage = entry.get_mut().as_any_mut().downcast_mut::<HashMap<Entity, Component>>().unwrap();
-                if let Some(old_component) = component_storage.get_mut(&entity) {
-                    *old_component = new_component;
-                }
-            }
-            Entry::Vacant(_) => {}
-        }
+    pub fn replace<Component: ComponentTrait>(&mut self, entity: Entity, new_component: Component) {
+        self.patch::<Component>(entity).with(move |component| *component = new_component);
     }
 
-    pub fn get<Component: Sized + 'static>(&self, entity: Entity) -> Option<&Component> {
+    pub fn patch<Component: ComponentTrait>(&mut self, entity: Entity) -> Patch<Component> {
+        let component = self.component_pool.get_mut(&TypeId::of::<Component>()).and_then(|component_pool| {
+            let component_storage = component_pool.as_any_mut().downcast_mut::<HashMap<Entity, Component>>().unwrap();
+            component_storage.get_mut(&entity)
+        });
+        Patch { observer: &mut self.observer, component }
+    }
+
+    pub fn get<Component: ComponentTrait>(&self, entity: Entity) -> Option<&Component> {
         if let Some(component_pool) = self.component_pool.get(&TypeId::of::<Component>()) {
             let component_pool = component_pool.as_ref();
             let component_storage = component_pool.as_any().downcast_ref::<HashMap<Entity, Component>>().unwrap();
@@ -144,12 +150,28 @@ impl Registry {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+pub struct Patch<'r, Component> {
+    observer: &'r mut Observer,
+    component: Option<&'r mut Component>,
+}
+
+impl<'r, Component> Patch<'r, Component> {
+    pub fn with<F: FnOnce(&mut Component)>(&mut self, func: F) {
+        if let Some(component) = &mut self.component {
+            func(component);
+            // TODO: Notify registry observer/event-manager
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 pub trait ComponentSet<'r> {
     type Result: Default;
     fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result;
 }
 
-impl<'r, A> ComponentSet<'r> for (A, ) where A: ComponentTrait {
+impl<'r, A> ComponentSet<'r> for (&A, ) where A: ComponentTrait {
     type Result = (Option<&'r A>, );
 
     fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
@@ -159,7 +181,7 @@ impl<'r, A> ComponentSet<'r> for (A, ) where A: ComponentTrait {
     }
 }
 
-impl<'r, A, B> ComponentSet<'r> for (A, B) where A: ComponentTrait, B: ComponentTrait {
+impl<'r, A, B> ComponentSet<'r> for (&A, &B) where A: ComponentTrait, B: ComponentTrait {
     type Result = (Option<&'r A>, Option<&'r B>);
 
     fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
@@ -170,7 +192,7 @@ impl<'r, A, B> ComponentSet<'r> for (A, B) where A: ComponentTrait, B: Component
     }
 }
 
-impl<'r, A, B, C> ComponentSet<'r> for (A, B, C) where A: ComponentTrait, B: ComponentTrait, C: ComponentTrait {
+impl<'r, A, B, C> ComponentSet<'r> for (&A, &B, &C) where A: ComponentTrait, B: ComponentTrait, C: ComponentTrait {
     type Result = (Option<&'r A>, Option<&'r B>, Option<&'r C>);
 
     fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
@@ -198,22 +220,32 @@ impl<'reg> Handle<'reg> {
     fn id(&self) -> Entity { self.entity }
 
     #[inline]
-    fn add<Component: Sized + 'static>(&mut self, new_component: Component) {
+    fn add<Component: ComponentTrait>(&mut self, new_component: Component) {
         self.registry.add(self.entity, new_component)
     }
 
     #[inline]
-    fn remove<Component: Sized + 'static>(&mut self) {
+    fn remove<Component: ComponentTrait>(&mut self) {
         self.registry.remove::<Component>(self.entity)
     }
 
     #[inline]
-    fn replace<Component: Sized + 'static>(&mut self, new_component: Component) {
+    fn replace<Component: ComponentTrait>(&mut self, new_component: Component) {
         self.registry.replace(self.entity, new_component)
     }
 
     #[inline]
-    fn get<Component: Sized + 'static>(&mut self) -> Option<&Component> {
+    fn patch<Component: ComponentTrait>(&mut self) -> Patch<Component> {
+        self.registry.patch::<Component>(self.entity)
+    }
+
+    #[inline]
+    fn get<Component: ComponentTrait>(&mut self) -> Option<&Component> {
         self.registry.get::<Component>(self.entity)
+    }
+
+    #[inline]
+    pub fn get_all<'r, Components: ComponentSet<'r>>(&'r self) -> Components::Result {
+        self.registry.get_all::<Components>(self.entity)
     }
 }
