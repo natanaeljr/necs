@@ -96,3 +96,32 @@ fn get_tuple() {
     let (color, ) = <(&Color, )>::get_components(entity, &registry);
     assert!(color.is_none());
 }
+
+#[test]
+fn view() {
+    let mut registry = Registry::new();
+    let entity = registry.create();
+    registry.add(entity, Position { x: 10, y: 20 });
+    registry.add(entity, Velocity { dx: -50, dy: -100 });
+    registry.add(entity, Color::default());
+    let entity = registry.create();
+    registry.add(entity, Position { x: 20, y: 30 });
+    registry.add(entity, Velocity { dx: -60, dy: -200 });
+    let entity = registry.create();
+    registry.add(entity, Position { x: 20, y: 30 });
+    registry.add(entity, Color::default());
+
+
+    let all = <(&Position, &Velocity)>::view_entities(&registry);
+    println!("{:?}", all);
+
+    for (entt, (position, velocity)) in registry.view_entities_with::<(&Position, &Velocity)>() {
+        println!("{:?}", entt);
+    }
+
+    registry.view_entities_with::<(&Position, &Velocity)>().iter().for_each(|(entt, (pos, vel))| {
+        println!("{:?}", entt);
+    });
+
+    assert!(false)
+}

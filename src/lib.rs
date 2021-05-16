@@ -131,16 +131,18 @@ impl Registry {
     }
 
     pub fn get<Component: ComponentTrait>(&self, entity: Entity) -> Option<&Component> {
-        if let Some(component_pool) = self.component_pool.get(&TypeId::of::<Component>()) {
-            let component_pool = component_pool.as_ref();
+        self.component_pool.get(&TypeId::of::<Component>()).and_then(|component_pool| {
             let component_storage = component_pool.as_any().downcast_ref::<HashMap<Entity, Component>>().unwrap();
-            return component_storage.get(&entity)
-        }
-        None
+            component_storage.get(&entity)
+        })
     }
 
-    pub fn get_all<'r, Components: ComponentSet<'r>>(&'r self, entity: Entity) -> Components::Result {
+    pub fn get_all<'r, Components: ComponentSet<'r>>(&'r self, entity: Entity) -> Components::GetResult {
         Components::get_components(entity, self)
+    }
+
+    pub fn view_entities_with<'r, Components: ComponentSet<'r>>(&'r self) -> Vec<(Entity, Components::ViewResult)> {
+        Components::view_entities(self)
     }
 
     pub fn exists(&self, entity: Entity) -> bool {
@@ -167,14 +169,17 @@ impl<'r, Component> Patch<'r, Component> {
 ///////////////////////////////////////////////////////////////////////////////
 
 pub trait ComponentSet<'r> {
-    type Result: Default;
-    fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result;
+    type GetResult: Default;
+    type ViewResult;
+    fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult;
+    fn view_entities(registry: &'r Registry) -> Vec<(Entity, Self::ViewResult)> { Default::default() }
 }
 
 impl<'r, A> ComponentSet<'r> for (&A, ) where A: ComponentTrait {
-    type Result = (Option<&'r A>, );
+    type GetResult = (Option<&'r A>, );
+    type ViewResult = (&'r A, );
 
-    fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
+    fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult {
         (
             registry.get::<A>(entity),
         )
@@ -182,20 +187,43 @@ impl<'r, A> ComponentSet<'r> for (&A, ) where A: ComponentTrait {
 }
 
 impl<'r, A, B> ComponentSet<'r> for (&A, &B) where A: ComponentTrait, B: ComponentTrait {
-    type Result = (Option<&'r A>, Option<&'r B>);
+    type GetResult = (Option<&'r A>, Option<&'r B>);
+    type ViewResult = (&'r A, &'r B);
 
-    fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
+    fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult {
         (
             registry.get::<A>(entity),
             registry.get::<B>(entity),
         )
     }
+
+    fn view_entities(registry: &'r Registry) -> Vec<(Entity, (&A, &B))> {
+        let a_storage = registry.component_pool.get(&TypeId::of::<A>()).and_then(|component_pool| {
+            component_pool.as_any().downcast_ref::<HashMap<Entity, A>>()
+        });
+        let b_storage = registry.component_pool.get(&TypeId::of::<B>()).and_then(|component_pool| {
+            component_pool.as_any().downcast_ref::<HashMap<Entity, B>>()
+        });
+        if a_storage.is_none() || b_storage.is_none() {
+            return Default::default();
+        }
+        let mut vec = Vec::new();
+        let a_storage = a_storage.unwrap();
+        let b_storage = b_storage.unwrap();
+        for a in a_storage {
+            if let Some(b) = b_storage.get(a.0) {
+                vec.push((*a.0, (a.1, b)));
+            }
+        }
+        vec
+    }
 }
 
 impl<'r, A, B, C> ComponentSet<'r> for (&A, &B, &C) where A: ComponentTrait, B: ComponentTrait, C: ComponentTrait {
-    type Result = (Option<&'r A>, Option<&'r B>, Option<&'r C>);
+    type GetResult = (Option<&'r A>, Option<&'r B>, Option<&'r C>);
+    type ViewResult = (&'r A, &'r B, &'r B);
 
-    fn get_components(entity: Entity, registry: &'r Registry) -> Self::Result {
+    fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult {
         (
             registry.get::<A>(entity),
             registry.get::<B>(entity),
@@ -245,7 +273,7 @@ impl<'reg> Handle<'reg> {
     }
 
     #[inline]
-    pub fn get_all<'r, Components: ComponentSet<'r>>(&'r self) -> Components::Result {
+    pub fn get_all<'r, Components: ComponentSet<'r>>(&'r self) -> Components::GetResult {
         self.registry.get_all::<Components>(self.entity)
     }
 }
