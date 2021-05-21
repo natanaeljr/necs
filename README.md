@@ -1,4 +1,4 @@
-New/next ECS Rust crate
+Next ECS Rust crate
 ===
 
 Experiment in initial development

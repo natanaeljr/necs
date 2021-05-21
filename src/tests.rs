@@ -65,9 +65,15 @@ fn handle() {
 }
 
 #[test]
+fn registry2() {
+    let mut registry = Registry::new();
+    let entity = registry.create_with((Position::default(), Velocity::default()));
+}
+
+#[test]
 fn typeinfo() {
-    assert_eq!("necs::tests::Position", std::any::type_name::<Position>());
-    assert_eq!("necs::tests::Velocity", std::any::type_name::<Velocity>());
+    assert_eq!("necst::tests::Position", std::any::type_name::<Position>());
+    assert_eq!("necst::tests::Velocity", std::any::type_name::<Velocity>());
 }
 
 #[test]
@@ -79,6 +85,8 @@ fn get_tuple() {
     registry.add(entity, Color::default());
     registry.replace(entity, Position::default());
     registry.remove::<Color>(entity);
+
+    let (position, velocity, color) = registry.get_all::<(&Position, &Velocity, &Color)>(entity);
 
     let (position, velocity, color) = registry.get_all::<(&Position, &Velocity, &Color)>(entity);
     assert!(position.is_some());
@@ -115,11 +123,11 @@ fn view() {
     let all = <(&Position, &Velocity)>::view_entities(&registry);
     println!("{:?}", all);
 
-    for (entt, (position, velocity)) in registry.view_entities_with::<(&Position, &Velocity)>() {
+    for (entt, (position, velocity)) in registry.view::<(&Position, &Velocity)>() {
         println!("{:?}", entt);
     }
 
-    registry.view_entities_with::<(&Position, &Velocity)>().iter().for_each(|(entt, (pos, vel))| {
+    registry.view::<(&Position, &Velocity)>().iter().for_each(|(entt, (pos, vel))| {
         println!("{:?}", entt);
     });
 

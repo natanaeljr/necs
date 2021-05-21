@@ -10,6 +10,8 @@ mod tests;
 ///////////////////////////////////////////////////////////////////////////////
 
 type Entity = u64;
+// TODO: Maybe make Entity = usize?
+//  What are the advantages for the system/processor? Is it worth it?
 
 const NULL_ENTITY: Entity = 0;
 
@@ -55,6 +57,9 @@ impl<T: ComponentTrait> ComponentStorage for HashMap<Entity, T> {
 struct Observer;
 
 ///////////////////////////////////////////////////////////////////////////////
+// TODO: ComponentStorage should be a Vector of Components.
+//  For that, we need also a entity index redirection table (HashMap<Entity, Index> or another Vector?) to the vector of components.
+//  Are Rust's HashMaps arrays internally? MUST KNOW
 
 pub struct Registry {
     next: Entity,
@@ -73,6 +78,10 @@ impl Registry {
         self.next += 1;
         self.entities.insert(entity, HashSet::new());
         entity
+    }
+
+    fn create_with(&mut self, components: impl ComponentTuple) -> Entity {
+        components.create_entity_with(self)
     }
 
     pub fn destroy(&mut self, entity: Entity) {
@@ -141,7 +150,7 @@ impl Registry {
         Components::get_components(entity, self)
     }
 
-    pub fn view_entities_with<'r, Components: ComponentSet<'r>>(&'r self) -> Vec<(Entity, Components::ViewResult)> {
+    pub fn view<'r, Components: ComponentSet<'r>>(&'r self) -> Vec<(Entity, Components::ViewResult)> {
         Components::view_entities(self)
     }
 
@@ -164,26 +173,46 @@ impl<'r, Component> Patch<'r, Component> {
             // TODO: Notify registry observer/event-manager
         }
     }
+    // TODO: fn get_mut() ? should also notify the observer
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+
+pub trait ComponentTuple {
+    fn create_entity_with(self, registry: &mut Registry) -> Entity;
+}
+
+// Reference: https://doc.rust-lang.org/1.5.0/src/core/tuple.rs.html#39-57
+// FIXME(#19630) Remove this work-around
+macro_rules! e {
+    ($e:expr) => { $e }
+}
+
+macro_rules! component_tuple {
+    ( $( $T:ident.$idx:tt ),+ ) => {
+        impl<$( $T ),+> ComponentTuple for ( $( $T, )+ )
+            where $( $T: ComponentTrait ),+
+        {
+            fn create_entity_with(self, registry: &mut Registry) -> Entity {
+                let entity = registry.create();
+                $(
+                    registry.add(entity, e!(self.$idx));
+                )+
+                entity
+            }
+        }
+    }
+}
+
+component_tuple!(A.0);
+component_tuple!(A.0, B.1);
+component_tuple!(A.0, B.1, C.2);
 
 pub trait ComponentSet<'r> {
     type GetResult: Default;
     type ViewResult;
     fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult;
-    fn view_entities(registry: &'r Registry) -> Vec<(Entity, Self::ViewResult)> { Default::default() }
-}
-
-impl<'r, A> ComponentSet<'r> for (&A, ) where A: ComponentTrait {
-    type GetResult = (Option<&'r A>, );
-    type ViewResult = (&'r A, );
-
-    fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult {
-        (
-            registry.get::<A>(entity),
-        )
-    }
+    fn view_entities(_registry: &'r Registry) -> Vec<(Entity, Self::ViewResult)> { Default::default() }
 }
 
 impl<'r, A, B> ComponentSet<'r> for (&A, &B) where A: ComponentTrait, B: ComponentTrait {
@@ -219,18 +248,29 @@ impl<'r, A, B> ComponentSet<'r> for (&A, &B) where A: ComponentTrait, B: Compone
     }
 }
 
-impl<'r, A, B, C> ComponentSet<'r> for (&A, &B, &C) where A: ComponentTrait, B: ComponentTrait, C: ComponentTrait {
-    type GetResult = (Option<&'r A>, Option<&'r B>, Option<&'r C>);
-    type ViewResult = (&'r A, &'r B, &'r B);
+macro_rules! tuple_ecs {
+    ( $( $T:ident ),+ ) => {
+        impl<'r, $( $T ),+> ComponentSet<'r> for ( $( &$T, )+ )
+            where $( $T: ComponentTrait ),+
+        {
+            type GetResult = ( $( Option<&'r $T>, )+ );
+            type ViewResult = ( $(&'r $T, )+ );
 
-    fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult {
-        (
-            registry.get::<A>(entity),
-            registry.get::<B>(entity),
-            registry.get::<C>(entity),
-        )
+            fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult {
+                (
+                    $(
+                        registry.get::<$T>(entity),
+                    )+
+                )
+            }
+        }
     }
 }
+
+tuple_ecs!(A);
+// tuple_ecs!(A, B);
+tuple_ecs!(A, B, C);
+tuple_ecs!(A, B, C, D);
 
 ///////////////////////////////////////////////////////////////////////////////
 

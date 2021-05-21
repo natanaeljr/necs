@@ -1,5 +1,5 @@
 [package]
-name = "necs"
+name = "necst"
 version = "0.1.0"
 authors = ["Natanael Rabello <natanael.rabello@outlook.com>"]
 edition = "2018"
