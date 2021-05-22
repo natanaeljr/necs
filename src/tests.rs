@@ -52,22 +52,9 @@ fn registry() {
 }
 
 #[test]
-fn handle() {
-    let mut registry = Registry::new();
-    let id = registry.create();
-    let mut entity = Handle::new(&mut registry, id);
-    assert_eq!(id, entity.id());
-    entity.add(Position::default());
-    entity.add(Velocity::default());
-    entity.replace(Velocity::default());
-    entity.remove::<Position>();
-    entity.patch::<Velocity>().with(|vel| vel.dy -= 20);
-}
-
-#[test]
 fn registry2() {
     let mut registry = Registry::new();
-    let _entity = registry.create_with((Position::default(),));
+    let _entity = registry.create_with((Position::default(), ));
     let _entity = registry.create_with((Position::default(), Velocity::default()));
     let _entity = registry.create_with((Position::default(), Velocity::default(), Color::default()));
     let _entity = registry.create_with((Position::default(), Velocity::default(), Color::default(), Vec::<usize>::default()));
@@ -89,20 +76,20 @@ fn get_tuple() {
     registry.replace(entity, Position::default());
     registry.remove::<Color>(entity);
 
-    let (position, velocity, color) = registry.get_all::<(&Position, &Velocity, &Color)>(entity);
+    let (position, velocity, color) = registry.get_all::<(Position, Velocity, Color)>(entity);
     assert!(position.is_some());
     assert!(velocity.is_some());
     assert!(color.is_none());
 
-    let (position, velocity) = registry.get_all::<(&Position, &Velocity)>(entity);
+    let (position, velocity) = registry.get_all::<(Position, Velocity)>(entity);
     assert!(position.is_some());
     assert!(velocity.is_some());
 
-    let (position, velocity) = <(&Position, &Velocity)>::get_components(entity, &registry);
+    let (position, velocity) = <(Position, Velocity)>::get_components(entity, &registry);
     assert!(position.is_some());
     assert!(velocity.is_some());
 
-    let (color, ) = <(&Color, )>::get_components(entity, &registry);
+    let (color, ) = <(Color, )>::get_components(entity, &registry);
     assert!(color.is_none());
 }
 
@@ -125,16 +112,16 @@ fn view() {
     registry.add(entity, Color::default());
 
 
-    let all = <(&Position,)>::view_entities(&registry);
+    let all = <(Position, )>::view_entities(&registry);
     println!("{:?}", all);
 
     println!("for in view");
-    for (entt, (_position, _velocity)) in registry.view::<(&Position, &Velocity)>() {
+    for (entt, (_position, _velocity)) in registry.view_all::<(Position, Velocity)>() {
         println!("{:?}", entt);
     }
 
     println!("view for_each");
-    registry.view::<(&Position, &Velocity, &Color)>().iter().for_each(|(entt, (_pos, _vel, _col))| {
+    registry.view_all::<(Position, Velocity, Color)>().iter().for_each(|(entt, (_pos, _vel, _col))| {
         println!("{:?}", entt);
     });
 
