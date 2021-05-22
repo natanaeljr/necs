@@ -28,6 +28,7 @@ impl<T: 'static + Sized> ComponentTrait for T {}
 trait ComponentStorage {
     fn remove(&mut self, entity: &Entity);
     fn is_empty(&self) -> bool;
+    fn len(&self) -> usize;
 
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -40,6 +41,10 @@ impl<T: ComponentTrait> ComponentStorage for HashMap<Entity, T> {
 
     fn is_empty(&self) -> bool {
         self.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.len()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -157,6 +162,9 @@ impl Registry {
     pub fn exists(&self, entity: Entity) -> bool {
         self.entities.contains_key(&entity)
     }
+
+    // TODO: add_or_replace(component)
+    // TODO: clear<component>()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -184,11 +192,11 @@ pub trait ComponentTuple {
 
 // Reference: https://doc.rust-lang.org/1.5.0/src/core/tuple.rs.html#39-57
 // FIXME(#19630) Remove this work-around
-macro_rules! e {
+macro_rules! expr {
     ($e:expr) => { $e }
 }
 
-macro_rules! component_tuple {
+macro_rules! impl_component_tuple {
     ( $( $T:ident.$idx:tt ),+ ) => {
         impl<$( $T ),+> ComponentTuple for ( $( $T, )+ )
             where $( $T: ComponentTrait ),+
@@ -196,7 +204,7 @@ macro_rules! component_tuple {
             fn create_entity_with(self, registry: &mut Registry) -> Entity {
                 let entity = registry.create();
                 $(
-                    registry.add(entity, e!(self.$idx));
+                    registry.add(entity, expr!(self.$idx));
                 )+
                 entity
             }
@@ -204,9 +212,17 @@ macro_rules! component_tuple {
     }
 }
 
-component_tuple!(A.0);
-component_tuple!(A.0, B.1);
-component_tuple!(A.0, B.1, C.2);
+macro_rules! impl_component_tuple_expand {
+    ( $T:ident.$idx:tt ) => {
+        impl_component_tuple!($T.$idx);
+    };
+    ( $T:ident.$idx:tt, $( $Ts:ident.$idxs:tt ),+ ) => {
+        impl_component_tuple!($T.$idx, $( $Ts.$idxs ),+);
+        impl_component_tuple_expand!($( $Ts.$idxs ),+);
+    };
+}
+
+impl_component_tuple_expand!(L.11, K.10, J.9, I.8, H.7, G.6, F.5, E.4, D.3, C.2, B.1, A.0);
 
 pub trait ComponentSet<'r> {
     type GetResult: Default;
@@ -215,41 +231,8 @@ pub trait ComponentSet<'r> {
     fn view_entities(_registry: &'r Registry) -> Vec<(Entity, Self::ViewResult)> { Default::default() }
 }
 
-impl<'r, A, B> ComponentSet<'r> for (&A, &B) where A: ComponentTrait, B: ComponentTrait {
-    type GetResult = (Option<&'r A>, Option<&'r B>);
-    type ViewResult = (&'r A, &'r B);
-
-    fn get_components(entity: Entity, registry: &'r Registry) -> Self::GetResult {
-        (
-            registry.get::<A>(entity),
-            registry.get::<B>(entity),
-        )
-    }
-
-    fn view_entities(registry: &'r Registry) -> Vec<(Entity, (&A, &B))> {
-        let a_storage = registry.component_pool.get(&TypeId::of::<A>()).and_then(|component_pool| {
-            component_pool.as_any().downcast_ref::<HashMap<Entity, A>>()
-        });
-        let b_storage = registry.component_pool.get(&TypeId::of::<B>()).and_then(|component_pool| {
-            component_pool.as_any().downcast_ref::<HashMap<Entity, B>>()
-        });
-        if a_storage.is_none() || b_storage.is_none() {
-            return Default::default();
-        }
-        let mut vec = Vec::new();
-        let a_storage = a_storage.unwrap();
-        let b_storage = b_storage.unwrap();
-        for a in a_storage {
-            if let Some(b) = b_storage.get(a.0) {
-                vec.push((*a.0, (a.1, b)));
-            }
-        }
-        vec
-    }
-}
-
 macro_rules! tuple_ecs {
-    ( $( $T:ident ),+ ) => {
+    ( $( $T:ident.$idx:tt ),+ ) => {
         impl<'r, $( $T ),+> ComponentSet<'r> for ( $( &$T, )+ )
             where $( $T: ComponentTrait ),+
         {
@@ -263,14 +246,58 @@ macro_rules! tuple_ecs {
                     )+
                 )
             }
+
+            fn view_entities(registry: &'r Registry) -> Vec<(Entity, Self::ViewResult)> {
+                let storages = (
+                    $(
+                        registry.component_pool.get(&TypeId::of::<$T>()).and_then(|component_pool| {
+                            component_pool.as_any().downcast_ref::<HashMap<Entity, $T>>()
+                        }),
+                    )+
+                );
+
+                let storage_noexist = $( expr!(storages.$idx).is_none() )||+;
+                if storage_noexist {
+                    return Default::default();
+                }
+
+                let storages = ( $( expr!(storages.$idx).unwrap(), )+ );
+                let mut vec = Vec::new();
+
+                for entity in storages.0.keys() {
+                    let components = (
+                        $(
+                            expr!(storages.$idx).get(&entity),
+                        )+
+                    );
+
+                    let exist = $( expr!(components.$idx).is_some() )&&+;
+                    if exist {
+                        let components = ( $( expr!(components.$idx).unwrap(), )+ );
+                        vec.push((*entity, components));
+                    }
+                }
+
+                vec
+            }
+
         }
     }
 }
 
-tuple_ecs!(A);
-// tuple_ecs!(A, B);
-tuple_ecs!(A, B, C);
-tuple_ecs!(A, B, C, D);
+tuple_ecs!(A.0);
+tuple_ecs!(A.0, B.1);
+tuple_ecs!(A.0, B.1, C.2);
+tuple_ecs!(A.0, B.1, C.2, D.3);
+
+///////////////////////////////////////////////////////////////////////////////
+
+struct View {
+}
+
+impl View {
+
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 

@@ -67,7 +67,10 @@ fn handle() {
 #[test]
 fn registry2() {
     let mut registry = Registry::new();
-    let entity = registry.create_with((Position::default(), Velocity::default()));
+    let _entity = registry.create_with((Position::default(),));
+    let _entity = registry.create_with((Position::default(), Velocity::default()));
+    let _entity = registry.create_with((Position::default(), Velocity::default(), Color::default()));
+    let _entity = registry.create_with((Position::default(), Velocity::default(), Color::default(), Vec::<usize>::default()));
 }
 
 #[test]
@@ -85,8 +88,6 @@ fn get_tuple() {
     registry.add(entity, Color::default());
     registry.replace(entity, Position::default());
     registry.remove::<Color>(entity);
-
-    let (position, velocity, color) = registry.get_all::<(&Position, &Velocity, &Color)>(entity);
 
     let (position, velocity, color) = registry.get_all::<(&Position, &Velocity, &Color)>(entity);
     assert!(position.is_some());
@@ -118,18 +119,24 @@ fn view() {
     let entity = registry.create();
     registry.add(entity, Position { x: 20, y: 30 });
     registry.add(entity, Color::default());
+    let entity = registry.create();
+    registry.add(entity, Position { x: 30, y: 50 });
+    registry.add(entity, Velocity { dx: -80, dy: -500 });
+    registry.add(entity, Color::default());
 
 
-    let all = <(&Position, &Velocity)>::view_entities(&registry);
+    let all = <(&Position,)>::view_entities(&registry);
     println!("{:?}", all);
 
-    for (entt, (position, velocity)) in registry.view::<(&Position, &Velocity)>() {
+    println!("for in view");
+    for (entt, (_position, _velocity)) in registry.view::<(&Position, &Velocity)>() {
         println!("{:?}", entt);
     }
 
-    registry.view::<(&Position, &Velocity)>().iter().for_each(|(entt, (pos, vel))| {
+    println!("view for_each");
+    registry.view::<(&Position, &Velocity, &Color)>().iter().for_each(|(entt, (_pos, _vel, _col))| {
         println!("{:?}", entt);
     });
 
-    assert!(false)
+    assert!(false);
 }
